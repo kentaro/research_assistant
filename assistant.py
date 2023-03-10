@@ -1,41 +1,44 @@
 import os
-
-import openai
 import streamlit as st
 
+import openai
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
-system_content = """
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts.chat import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+    MessagesPlaceholder,
+)
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain
+
+system_message = """
 あなたは研究アシスタントです。ユーザは研究者で、あなたに研究に関する質問を投げかけます。
-アシスタントとして、論文執筆に役立つ回答を、できる限り根拠を示した上で返してください。
-"""
+アシスタントとして、論文執筆に役立つ回答を、できる限り根拠を示した上で返してください。"""
+prompt = ChatPromptTemplate.from_messages([
+  SystemMessagePromptTemplate.from_template(system_message),
+  MessagesPlaceholder(variable_name="history"),
+  HumanMessagePromptTemplate.from_template("{input}")
+])
 
-def on_click_handler(user_content):
-  assistant_content = st.session_state.assistant_content or ""
-  answer = call_chatgpt(user_content, assistant_content)
-
-  st.session_state.assistant_content = answer
-  return answer
-
-def call_chatgpt(user_content, assistant_content):
-  response = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo",
-    messages=[
-      {"role": "system", "content": system_content},
-      {"role": "user", "content": user_content},
-      {"role": "assistant", "content": assistant_content},
-    ],
+@st.cache_resource
+def get_conversation():
+  llm = ChatOpenAI(temperature=0)
+  memory = ConversationBufferMemory(return_messages=True)
+  conversation = ConversationChain(
+    memory=memory,
+    prompt=prompt,
+    llm=llm
   )
-
-  return response.choices[0]["message"]["content"].strip()
+  return conversation
 
 st.title("研究アシスタント")
-if "assistant_content" not in st.session_state:
-    st.session_state.assistant_content = ""
-
 with st.form("研究アシスタントに質問する"):
-  user_content = st.text_area("質問を入力してください")
+  user_message = st.text_area("質問を入力してください")
   submitted = st.form_submit_button("質問する")
   if submitted:
-    answer = on_click_handler(user_content)
+    conversation = get_conversation()
+    answer = conversation.predict(input=user_message)
     st.write(answer)
